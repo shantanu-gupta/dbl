@@ -1,2 +1,2 @@
-# dbl
-DRAM bit loss
+# rambl
+RAM bit loss
