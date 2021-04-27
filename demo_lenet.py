@@ -4,86 +4,76 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import datasets, transforms
+import copy
 
-class BitLoser(nn.Module):
-    def __init__(self, approx_bits, loss_prob, num_refreshes):
-        super(BitLoser, self).__init__()
-        self.approx_bits = approx_bits
-        self.loss_prob = 1 - ((1 - loss_prob) ** max(1, num_refreshes))
-        print('ploss = {}'.format(self.loss_prob))
-        return
-
-    def forward(self, x):
-        if self.training:
-            return x
-        else:
-            mask = np.zeros(x.shape, dtype=np.int32)
-            for b in self.approx_bits:
-                l = np.random.random(x.shape) < self.loss_prob
+class BitError(nn.Module):
+    @staticmethod
+    def generate_mask(shape, approx_bits, loss_prob):
+        mask = np.zeros(shape, dtype=np.int32)
+        if loss_prob > 0.0:
+            for b in approx_bits:
+                l = np.random.random(shape) < loss_prob
                 mask = mask | np.left_shift(l.astype(np.int32), b)
-            y = torch.from_numpy((x.numpy().view(np.int32) & np.invert(mask))\
-                                    .view(np.float32))
-            return y
+        return mask
+
+    @staticmethod
+    def apply_mask(x, mask):
+        return torch.from_numpy((x.numpy().view(np.int32) & np.invert(mask)) \
+                                .view(np.float32))
 
 class LeNet(nn.Module):
+    NUM_APPROX_BITS = 23
+    P_LOSS1 = 1e-1
+    MIN_READ_DELAY = 10     # write-to-read delay
+    
     def __init__(self, approx=False):
         super(LeNet, self).__init__()
         self.approx = approx
-        NUM_APPROX_BITS = 23
-        P_LOSS1 = 1e-1
-        NUM_REFRESHES = 10
-        if approx:
-            self.bl = BitLoser(range(NUM_APPROX_BITS), P_LOSS1, NUM_REFRESHES)
         self.conv1 = nn.Conv2d(1, 6, 5, padding=2)
+        self.relu1 = nn.ReLU()
+        self.pool1 = nn.MaxPool2d(2)
         self.conv2 = nn.Conv2d(6, 16, 5, padding=0)
+        self.relu2 = nn.ReLU()
+        self.pool2 = nn.MaxPool2d(2)
         self.conv3 = nn.Conv2d(16, 120, 5, padding=0)
+        self.relu3 = nn.ReLU()
+        self.flatten = nn.Flatten(1)
         self.fc1 = nn.Linear(120, 84)
+        self.relu_fc1 = nn.ReLU()
         self.fc2 = nn.Linear(84, 10)
-        return
+        self.lsm = nn.LogSoftmax(1)
+        # hack to allow bit loss at the end
+        # self.final = nn.Identity()
+        self.layers = nn.Sequential(self.conv1, self.relu1, self.pool1,
+                                    self.conv2, self.relu2, self.pool2,
+                                    self.conv3, self.relu3, self.flatten,
+                                    self.fc1, self.relu_fc1,
+                                    self.fc2, self.lsm)
+                                    # self.final)
 
-    def forward(self, X):
-        if self.approx:
-            X = self.bl(X)
-        y = self.conv1(X)
-        if self.approx:
-            y = self.bl(y)
-        y = F.relu(y)
-        if self.approx:
-            y = self.bl(y)
-        y = F.max_pool2d(y, 2)
-        if self.approx:
-            y = self.bl(y)
-        y = self.conv2(y)
-        if self.approx:
-            y = self.bl(y)
-        y = F.relu(y)
-        if self.approx:
-            y = self.bl(y)
-        y = F.max_pool2d(y, 2)
-        if self.approx:
-            y = self.bl(y)
-        y = self.conv3(y)
-        if self.approx:
-            y = self.bl(y)
-        y = F.relu(y)
-        if self.approx:
-            y = self.bl(y)
-        y = torch.flatten(y, 1)
-        if self.approx:
-            y = self.bl(y)
-        y = self.fc1(y)
-        if self.approx:
-            y = self.bl(y)
-        y = F.relu(y)
-        if self.approx:
-            y = self.bl(y)
-        y = self.fc2(y)
-        if self.approx:
-            y = self.bl(y)
-        y = F.log_softmax(y, dim=1)
-        if self.approx:
-            y = self.bl(y)
-        return y
+    def forward(self, x):
+        if not self.approx:
+            x = self.layers(x)
+        else:
+            assert not self.training, "can't handle bitloss in training!"
+            for i, layer in enumerate(self.layers):
+                p_dataloss = 1 - ((1 - LeNet.P_LOSS1)
+                                    ** max(1, LeNet.MIN_READ_DELAY))
+                data_mask = BitError.generate_mask(x.shape,
+                                                range(LeNet.NUM_APPROX_BITS),
+                                                p_dataloss)
+                x = BitError.apply_mask(x, data_mask)
+                layer_copy = copy.deepcopy(layer)
+                p_paramloss = 1 - ((1 - LeNet.P_LOSS1)
+                                    ** max(1, LeNet.MIN_READ_DELAY * (i+1)))
+                # p_paramloss = 0
+                for t in layer_copy.parameters():
+                    param_mask = BitError.generate_mask(t.data.shape,
+                                                range(LeNet.NUM_APPROX_BITS),
+                                                p_paramloss)
+                    t.data = BitError.apply_mask(t.data, param_mask)
+                x = layer_copy(x)
+        return x
 
 def train(loader, model, optimizer):
     # stolen from https://github.com/pytorch/examples/blob/master/mnist/main.py
@@ -122,8 +112,8 @@ def main():
                                 transform=tform)
     test_loader = torch.utils.data.DataLoader(test_data,
                                             batch_size=TEST_BATCH_SIZE)
-    APPROX = True
-    model = LeNet(approx=APPROX).to('cpu')
+
+    model = LeNet().to('cpu')
     SAVED_MODEL_PARAMS_FILE = './lenet_mnist.pt'
     if os.path.exists(SAVED_MODEL_PARAMS_FILE):
         # load saved params
@@ -141,11 +131,17 @@ def main():
                                                 gamma=0.7)
         EPOCHS = 10
         for epoch in range(1, EPOCHS+1):
+            print('Test before epoch {}'.format(epoch))
             test(test_loader, model)
-            print('Epoch {}'.format(epoch))
+            print('Train epoch {}'.format(epoch))
             train(train_loader, model, optimizer)
             sched.step()
+        print('Test at end')
+        test(test_loader, model)
         torch.save(model.state_dict(), SAVED_MODEL_PARAMS_FILE)
+    # now turn approx on
+    print('Allowing bit-errors now...')
+    model.approx = True
     test(test_loader, model)
     return
 
