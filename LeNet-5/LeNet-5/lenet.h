@@ -5,13 +5,13 @@
 @api	:
 
 批量训练
-void TrainBatch(LeNet5 *lenet, image *inputs, const char(*resMat)[OUTPUT],uint8 *labels, int batchSize);
+void TrainBatch(LeNet5 *lenet, image *inputs, const char(*resMat)[OUTPUT],uint8 *labels, int batchSize,std::ofstream& wf);
 
 训练
-void Train(LeNet5 *lenet, image input, const char(*resMat)[OUTPUT],uint8 label);
+void Train(LeNet5 *lenet, image input, const char(*resMat)[OUTPUT],uint8 label,std::ofstream& wf);
 
 预测
-uint8 Predict(LeNet5 *lenet, image input, const char(*resMat)[OUTPUT], uint8 count);
+uint8 Predict(LeNet5 *lenet, image input, const char(*resMat)[OUTPUT], uint8 count,std::ofstream& wf);
 
 初始化
 void Initial(LeNet5 *lenet);
@@ -38,7 +38,7 @@ void Initial(LeNet5 *lenet);
 
 #define ALPHA 0.5
 #define PADDING 2
-
+#include <fstream>
 typedef unsigned char uint8;
 typedef uint8 image[28][28];
 
@@ -68,10 +68,10 @@ typedef struct Feature
 	double output[OUTPUT];
 }Feature;
 
-void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize);
+void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize,std::ofstream& wf);
 
-void Train(LeNet5 *lenet, image input, uint8 label);
+void Train(LeNet5 *lenet, image input, uint8 label,std::ofstream& wf);
 
-uint8 Predict(LeNet5 *lenet, image input, uint8 count);
+uint8 Predict(LeNet5 *lenet, image input, uint8 count,std::ofstream& wf);
 
 void Initial(LeNet5 *lenet);

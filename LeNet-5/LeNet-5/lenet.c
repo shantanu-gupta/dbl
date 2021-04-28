@@ -3,21 +3,35 @@
 #include <time.h>
 #include <stdlib.h>
 #include <math.h>
+#include <fstream>
+#include<chrono>
+using std::chrono::high_resolution_clock;
+using std::chrono::duration;
+
+
+//global timekeeping variables
+static high_resolution_clock::time_point start;
+static high_resolution_clock::time_point end;
+static duration<double, std::milli> duration_sec;
 
 #define GETLENGTH(array) (sizeof(array)/sizeof(*(array)))
-
 #define GETCOUNT(array)  (sizeof(array)/sizeof(double))
-
 #define FOREACH(i,count) for (int i = 0; i < count; ++i)
-
-#define CONVOLUTE_VALID(input,output,weight)											\
+#define CONVOLUTE_VALID(input,output,weight,wf,predict)											\
 {																						\
 	FOREACH(o0,GETLENGTH(output))														\
 		FOREACH(o1,GETLENGTH(*(output)))												\
 			FOREACH(w0,GETLENGTH(weight))												\
 				FOREACH(w1,GETLENGTH(*(weight)))										\
-					(output)[o0][o1] += (input)[o0 + w0][o1 + w1] * (weight)[w0][w1];	\
-}
+					{(output)[o0][o1] += (input)[o0 + w0][o1 + w1] * (weight)[w0][w1];	\
+					if(predict&&o0==0 &&o1==0){ \
+						end = high_resolution_clock::now();\
+    						duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start); \
+					       	wf<<&((weight)[w0][w1])<<" R "<<duration_sec.count()<< " :WEIGHT\n";\
+						wf<<&((input)[o0 + w0][o1 + w1])<<" R "<<duration_sec.count()<<" :INPUT\n";\
+						wf<<&((output)[o0][o1])<<" W "<<duration_sec.count()<<" :OUTPUT\n";	}                                                 \
+	}\
+ }
 
 #define CONVOLUTE_FULL(input,output,weight)												\
 {																						\
@@ -28,17 +42,17 @@
 					(output)[i0 + w0][i1 + w1] += (input)[i0][i1] * (weight)[w0][w1];	\
 }
 
-#define CONVOLUTION_FORWARD(input,output,weight,bias,action)					\
+#define CONVOLUTION_FORWARD(input,output,weight,bias,action,wf,predict)					\
 {																				\
 	for (int x = 0; x < GETLENGTH(weight); ++x)									\
 		for (int y = 0; y < GETLENGTH(*weight); ++y)							\
-			CONVOLUTE_VALID(input[x], output[y], weight[x][y]);					\
+			CONVOLUTE_VALID(input[x], output[y], weight[x][y],wf,predict);					\
 	FOREACH(j, GETLENGTH(output))												\
 		FOREACH(i, GETCOUNT(output[j]))											\
 		((double *)output[j])[i] = action(((double *)output[j])[i] + bias[j]);	\
 }
 
-#define CONVOLUTION_BACKWARD(input,inerror,outerror,weight,wd,bd,actiongrad)\
+#define CONVOLUTION_BACKWARD(input,inerror,outerror,weight,wd,bd,actiongrad,wf)\
 {																			\
 	for (int x = 0; x < GETLENGTH(weight); ++x)								\
 		for (int y = 0; y < GETLENGTH(*weight); ++y)						\
@@ -50,11 +64,11 @@
 		bd[j] += ((double *)outerror[j])[i];								\
 	for (int x = 0; x < GETLENGTH(weight); ++x)								\
 		for (int y = 0; y < GETLENGTH(*weight); ++y)						\
-			CONVOLUTE_VALID(input[x], wd[x][y], outerror[y]);				\
+			CONVOLUTE_VALID(input[x], wd[x][y], outerror[y],wf,false);				\
 }
 
 
-#define SUBSAMP_MAX_FORWARD(input,output)														\
+#define SUBSAMP_MAX_FORWARD(input,output,wf,predict)														\
 {																								\
 	const int len0 = GETLENGTH(*(input)) / GETLENGTH(*(output));								\
 	const int len1 = GETLENGTH(**(input)) / GETLENGTH(**(output));								\
@@ -70,8 +84,15 @@
 			x0 += ismax * (l0 - x0);															\
 			x1 += ismax * (l1 - x1);															\
 		}																						\
-		output[i][o0][o1] = input[i][o0*len0 + x0][o1*len1 + x1];								\
-	}																							\
+		output[i][o0][o1] = input[i][o0*len0 + x0][o1*len1 + x1];		\
+		if(predict && i==0 && o0==00 && o1==0) \
+		{\
+			end = high_resolution_clock::now();\
+                        duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start); \
+			wf<<&(input[i][o0*len0 + x0][o1*len1 + x1])<<" R "<<duration_sec.count()<<" :INPUT\n"; \
+			wf<<&(output[i][o0][o1])<<" R "<<duration_sec.count()<<" :OUPUT\n"; \
+	        }			\
+	} \
 }
 
 #define SUBSAMP_MAX_BACKWARD(input,inerror,outerror)											\
@@ -94,7 +115,7 @@
 	}																							\
 }
 
-#define DOT_PRODUCT_FORWARD(input,output,weight,bias,action)				\
+#define DOT_PRODUCT_FORWARD(input,output,weight,bias,action,wf,predict)				\
 {																			\
 	for (int x = 0; x < GETLENGTH(weight); ++x)								\
 		for (int y = 0; y < GETLENGTH(*weight); ++y)						\
@@ -127,24 +148,30 @@ double relugrad(double y)
 	return y > 0;
 }
 
-static void forward(LeNet5 *lenet, Feature *features, double(*action)(double))
+static void forward(LeNet5 *lenet, Feature *features, double(*action)(double), std::ofstream& wf, bool predict=false)
 {
-	CONVOLUTION_FORWARD(features->input, features->layer1, lenet->weight0_1, lenet->bias0_1, action);
-	SUBSAMP_MAX_FORWARD(features->layer1, features->layer2);
-	CONVOLUTION_FORWARD(features->layer2, features->layer3, lenet->weight2_3, lenet->bias2_3, action);
-	SUBSAMP_MAX_FORWARD(features->layer3, features->layer4);
-	CONVOLUTION_FORWARD(features->layer4, features->layer5, lenet->weight4_5, lenet->bias4_5, action);
-	DOT_PRODUCT_FORWARD(features->layer5, features->output, lenet->weight5_6, lenet->bias5_6, action);
+	CONVOLUTION_FORWARD(features->input, features->layer1, lenet->weight0_1, lenet->bias0_1, action, wf,predict);
+	if(predict) wf<<"--------LAYER----1----ENDS------------\n";
+	SUBSAMP_MAX_FORWARD(features->layer1, features->layer2,wf,predict);
+	if(predict) wf<<"--------LAYER----2----ENDS------------\n";
+	CONVOLUTION_FORWARD(features->layer2, features->layer3, lenet->weight2_3, lenet->bias2_3, action,wf,predict);
+	if(predict) wf<<"--------LAYER----3----ENDS------------\n";
+	SUBSAMP_MAX_FORWARD(features->layer3, features->layer4,wf,predict);
+	if(predict) wf<<"--------LAYER----4----ENDS------------\n";
+	CONVOLUTION_FORWARD(features->layer4, features->layer5, lenet->weight4_5, lenet->bias4_5, action,wf,predict);
+	if(predict) wf<<"--------LAYER----5----ENDS------------\n";
+	DOT_PRODUCT_FORWARD(features->layer5, features->output, lenet->weight5_6, lenet->bias5_6, action,wf,predict);
+	if(predict) wf<<"--------LAYER----6----ENDS------------\n";
 }
 
-static void backward(LeNet5 *lenet, LeNet5 *deltas, Feature *errors, Feature *features, double(*actiongrad)(double))
+static void backward(LeNet5 *lenet, LeNet5 *deltas, Feature *errors, Feature *features, double(*actiongrad)(double),std::ofstream& wf)
 {
 	DOT_PRODUCT_BACKWARD(features->layer5, errors->layer5, errors->output, lenet->weight5_6, deltas->weight5_6, deltas->bias5_6, actiongrad);
-	CONVOLUTION_BACKWARD(features->layer4, errors->layer4, errors->layer5, lenet->weight4_5, deltas->weight4_5, deltas->bias4_5, actiongrad);
+	CONVOLUTION_BACKWARD(features->layer4, errors->layer4, errors->layer5, lenet->weight4_5, deltas->weight4_5, deltas->bias4_5, actiongrad,wf);
 	SUBSAMP_MAX_BACKWARD(features->layer3, errors->layer3, errors->layer4);
-	CONVOLUTION_BACKWARD(features->layer2, errors->layer2, errors->layer3, lenet->weight2_3, deltas->weight2_3, deltas->bias2_3, actiongrad);
+	CONVOLUTION_BACKWARD(features->layer2, errors->layer2, errors->layer3, lenet->weight2_3, deltas->weight2_3, deltas->bias2_3, actiongrad,wf);
 	SUBSAMP_MAX_BACKWARD(features->layer1, errors->layer1, errors->layer2);
-	CONVOLUTION_BACKWARD(features->input, errors->input, errors->layer1, lenet->weight0_1, deltas->weight0_1, deltas->bias0_1, actiongrad);
+	CONVOLUTION_BACKWARD(features->input, errors->input, errors->layer1, lenet->weight0_1, deltas->weight0_1, deltas->bias0_1, actiongrad,wf);
 }
 
 static inline void load_input(Feature *features, image input)
@@ -228,7 +255,7 @@ static double f64rand()
 }
 
 
-void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize)
+void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize,std::ofstream& wf)
 {
 	double buffer[GETCOUNT(LeNet5)] = { 0 };
 	int i = 0;
@@ -239,9 +266,9 @@ void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize)
 		Feature errors = { 0 };
 		LeNet5	deltas = { 0 };
 		load_input(&features, inputs[i]);
-		forward(lenet, &features, relu);
+		forward(lenet, &features, relu,wf);
 		load_target(&features, &errors, labels[i]);
-		backward(lenet, &deltas, &errors, &features, relugrad);
+		backward(lenet, &deltas, &errors, &features, relugrad,wf);
 		#pragma omp critical
 		{
 			FOREACH(j, GETCOUNT(LeNet5))
@@ -253,24 +280,26 @@ void TrainBatch(LeNet5 *lenet, image *inputs, uint8 *labels, int batchSize)
 		((double *)lenet)[i] += k * buffer[i];
 }
 
-void Train(LeNet5 *lenet, image input, uint8 label)
+void Train(LeNet5 *lenet, image input, uint8 label,std::ofstream& wf)
 {
 	Feature features = { 0 };
 	Feature errors = { 0 };
 	LeNet5 deltas = { 0 };
 	load_input(&features, input);
-	forward(lenet, &features, relu);
+	forward(lenet, &features, relu,wf);
 	load_target(&features, &errors, label);
-	backward(lenet, &deltas, &errors, &features, relugrad);
+	backward(lenet, &deltas, &errors, &features, relugrad,wf);
 	FOREACH(i, GETCOUNT(LeNet5))
 		((double *)lenet)[i] += ALPHA * ((double *)&deltas)[i];
+	wf.close();
 }
 
-uint8 Predict(LeNet5 *lenet, image input,uint8 count)
+uint8 Predict(LeNet5 *lenet, image input,uint8 count,std::ofstream& wf)
 {
 	Feature features = { 0 };
 	load_input(&features, input);
-	forward(lenet, &features, relu);
+	start = high_resolution_clock::now();
+	forward(lenet, &features, relu,wf,true);
 	return get_result(&features, count);
 }
 

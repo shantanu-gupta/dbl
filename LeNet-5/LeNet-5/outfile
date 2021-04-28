@@ -1,0 +1,72 @@
+5c5,6
+< 
+---
+> #include <fstream>
+> #include <iostream>
+10c11
+< #define LENET_FILE 		"model.dat"
+---
+> //#define LENET_FILE 		"model.dat"
+13c14
+< 
+---
+> using namespace std;
+29c30
+< void training(LeNet5 *lenet, image *train_data, uint8 *train_label, int batch_size, int total_size)
+---
+> void training(LeNet5 *lenet, image *train_data, uint8 *train_label, int batch_size, int total_size, std::ofstream& wf)
+33c34
+< 		TrainBatch(lenet, train_data + i, train_label + i, batch_size);
+---
+> 		TrainBatch(lenet, train_data + i, train_label + i, batch_size,wf);
+39c40
+< int testing(LeNet5 *lenet, image *test_data, uint8 *test_label,int total_size)
+---
+> int testing(LeNet5 *lenet, image *test_data, uint8 *test_label,int total_size,std::ofstream& wf)
+45c46
+< 		int p = Predict(lenet, test_data[i], 10);
+---
+> 		int p = Predict(lenet, test_data[i], 10,wf);
+64c65
+< 	FILE *fp = fopen(filename, "rb");
+---
+> 	FILE *fp = fopen("model.dat", "rb");
+95a97,98
+> 	if (load(lenet, "model.dat"))
+> 	{Initial(lenet);std::cout<<"model found\n";}
+97,112c100,107
+< 	if (load(lenet, LENET_FILE)) {
+< 		Initial(lenet);
+< 		start = clock();
+< 		int batches[] = { 300 };
+< 		for (int i = 0; i < sizeof(batches) / sizeof(*batches);++i)
+< 			training(lenet, train_data, train_label, batches[i],COUNT_TRAIN);
+< 		int right = testing(lenet, test_data, test_label, COUNT_TEST);
+< 		printf("%d/%d\n", right, COUNT_TEST);
+< 		printf("Time:%u\n", (unsigned)(clock() - start));
+< 		save(lenet, LENET_FILE);
+< 		free(train_data);
+< 		free(train_label);
+< 		// system("pause");
+< 	}
+< 	start = clock();
+< 	int right = testing(lenet, test_data, test_label, COUNT_TEST);
+---
+> 	int batches[] = { 300 };
+> 	std::ofstream wf("student.dat", std::ios::out | std::ios::binary);
+>                 if(!wf) {
+>                         std::cout << "Cannot open file!" << endl;
+>                  }
+> 	for (int i = 0; i < sizeof(batches) / sizeof(*batches);++i)
+> 		training(lenet, train_data, train_label, batches[i],COUNT_TRAIN,wf);
+> 	int right = testing(lenet, test_data, test_label, COUNT_TEST,wf);
+114a110,113
+> 	save(lenet, "model.dat");
+> 	free(lenet);
+> 	free(train_data);
+> 	free(train_label);
+117c116,117
+< 	free(lenet);
+---
+> 	wf.close();
+> 	system("pause");
