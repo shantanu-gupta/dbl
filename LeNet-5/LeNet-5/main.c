@@ -104,7 +104,6 @@ void foo()
 		printf("%d/%d\n", right, COUNT_TEST);
 		printf("Time:%u\n", (unsigned)(clock() - start));
 		save(lenet, LENET_FILE);
-		free(lenet);
 		free(train_data);
 		free(train_label);
 		// system("pause");
@@ -115,6 +114,7 @@ void foo()
 	printf("Time:%u\n", (unsigned)(clock() - start));
 	free(test_data);
 	free(test_label);
+	free(lenet);
 }
 
 int main()
