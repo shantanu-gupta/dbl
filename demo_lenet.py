@@ -24,7 +24,7 @@ class BitError(nn.Module):
 class LeNet(nn.Module):
     NUM_APPROX_BITS = 23
     P_LOSS1 = 1e-1
-    MIN_READ_DELAY = 10     # write-to-read delay
+    MIN_READ_DELAY = 30     # write-to-read delay
     
     def __init__(self, approx=False):
         super(LeNet, self).__init__()
