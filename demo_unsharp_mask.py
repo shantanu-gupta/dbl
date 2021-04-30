@@ -14,27 +14,30 @@ def apply_bitloss_mask(A, mask):
     return (A.view(np.int32) & np.invert(mask)).view(np.float32)
 
 def main():
-    from skimage.data import brick
+    from skimage.data import moon
     from skimage.util import img_as_float32
-    from skimage.filters import sobel
+    from skimage.filters import unsharp_mask
     import matplotlib.pyplot as plt
 
-    A = img_as_float32(brick())
-    Af0 = sobel(A)
+    A = img_as_float32(moon())
+    Af0 = unsharp_mask(A, radius=5, amount=2)
 
     NUM_APPROX_BITS = 20
     Ac = apply_bitloss_mask(A, generate_bitloss_mask(A.shape,
                                                     range(NUM_APPROX_BITS),
                                                     1e-1,
                                                     10))
-    Afc = sobel(Ac)
+    Afc = unsharp_mask(Ac, radius=5, amount=2)
 
     plt.figure()
-    plt.imshow(np.hstack((A, Ac)), cmap='gray')
-    plt.show(block=False)
-
-    plt.figure()
-    plt.imshow(np.hstack((Af0, Afc)), cmap='gray')
+    plt.imshow(np.vstack((np.hstack((A, Af0)),
+                          np.hstack((Ac, Afc)))), cmap='gray')
+    plt.title('\n'.join(
+                ('top-left: original input', 
+                 'top-right: original filter output',
+                 'bottom-left: approx input ({}/23 bad mantissa bits)'
+                    .format(NUM_APPROX_BITS), 
+                 'bottom-right: approx output')))
     plt.show()
     return
 

@@ -10,14 +10,15 @@
 #define FILE_TEST_LABEL		"t10k-labels-idx1-ubyte"
 #define LENET_FILE 		"model.dat"
 #define COUNT_TRAIN		60000
-#define COUNT_TEST		10000
+// #define COUNT_TEST		10000
+#define COUNT_TEST		1				// that's all we need...
 using namespace std;
 
 int read_data(unsigned char(*data)[28][28], unsigned char label[], const int count, const char data_file[], const char label_file[])
 {
-    FILE *fp_image = fopen(data_file, "rb");
-    FILE *fp_label = fopen(label_file, "rb");
-    if (!fp_image||!fp_label) return 1;
+	FILE *fp_image = fopen(data_file, "rb");
+	FILE *fp_label = fopen(label_file, "rb");
+	if (!fp_image||!fp_label) return 1;
 	fseek(fp_image, 16, SEEK_SET);
 	fseek(fp_label, 8, SEEK_SET);
 	fread(data, sizeof(*data)*count, 1, fp_image);
@@ -37,7 +38,7 @@ void training(LeNet5 *lenet, image *train_data, uint8 *train_label, int batch_si
 	}
 }
 
-int testing(LeNet5 *lenet, image *test_data, uint8 *test_label,int total_size,std::ofstream& wf)
+int testing(LeNet5 *lenet, image *test_data, uint8 *test_label, int total_size, std::ofstream& wf)
 {
 	int right = 0, percent = 0;
 	for (int i = 0; i < total_size; ++i)
@@ -69,8 +70,6 @@ int load(LeNet5 *lenet, char filename[])
 	return 0;
 }
 
-
-
 void foo()
 {
 	image *train_data = (image *)calloc(COUNT_TRAIN, sizeof(image));
@@ -94,36 +93,31 @@ void foo()
 
 
 	LeNet5 *lenet = (LeNet5 *)malloc(sizeof(LeNet5));
-	//if (load(lenet, "model.dat"))
-	//{Initial(lenet);std::cout<<"model found\n";}
 	clock_t start = clock();
 	std::ofstream wf("student.dat", std::ios::out | std::ios::binary);
-                if(!wf) {
-                        std::cout << "Cannot open file!" << endl;
-                 } 
+	if(!wf) {
+		std::cout << "Cannot open file!" << endl;
+	} 
 	if (load(lenet, LENET_FILE)) {
-               Initial(lenet);
-               start = clock();
-               int batches[] = { 300 };
-               for (int i = 0; i < sizeof(batches) / sizeof(*batches);++i)
-                       training(lenet, train_data, train_label, batches[i],COUNT_TRAIN,wf);
-               int right = testing(lenet, test_data, test_label, COUNT_TEST,wf);
-               printf("%d/%d\n", right, COUNT_TEST);
-               printf("Time:%u\n", (unsigned)(clock() - start));
-               save(lenet, LENET_FILE);
-               free(train_data);
-               free(train_label);
-               // system("pause");
-       }
-       start = clock();
-       int right = testing(lenet, test_data, test_label, COUNT_TEST,wf);
-	
-	
+		Initial(lenet);
+		start = clock();
+		int batches[] = { 300 };
+		for (int i = 0; i < sizeof(batches) / sizeof(*batches);++i)
+			training(lenet, train_data, train_label, batches[i],COUNT_TRAIN,wf);
+		int right = testing(lenet, test_data, test_label, COUNT_TEST,wf);
+		printf("%d/%d\n", right, COUNT_TEST);
+		printf("Time:%u\n", (unsigned)(clock() - start));
+		save(lenet, LENET_FILE);
+		free(train_data);
+		free(train_label);
+	}
+	start = clock();
+	int right = testing(lenet, test_data, test_label, COUNT_TEST,wf);
+
 	free(test_data);
 	free(test_label);
 	free(lenet);
 	wf.close();
-	system("pause");
 }
 
 int main()
@@ -131,3 +125,4 @@ int main()
 	foo();
 	return 0;
 }
+

@@ -17,21 +17,26 @@ static duration<double, std::milli> duration_sec;
 #define GETLENGTH(array) (sizeof(array)/sizeof(*(array)))
 #define GETCOUNT(array)  (sizeof(array)/sizeof(double))
 #define FOREACH(i,count) for (int i = 0; i < count; ++i)
-#define CONVOLUTE_VALID(input,output,weight,wf,predict)											\
+#define CONVOLUTE_VALID(input,output,weight,wf,tracei,traceo,xi,xo)											\
 {																						\
 	FOREACH(o0,GETLENGTH(output))														\
 		FOREACH(o1,GETLENGTH(*(output)))												\
 			FOREACH(w0,GETLENGTH(weight))												\
-				FOREACH(w1,GETLENGTH(*(weight)))										\
-					{(output)[o0][o1] += (input)[o0 + w0][o1 + w1] * (weight)[w0][w1];	\
-					if(predict&&o0==0 &&o1==0){ \
-						end = high_resolution_clock::now();\
-    						duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start); \
-					       	wf<<&((weight)[w0][w1])<<" R "<<duration_sec.count()<< " :WEIGHT\n";\
-						wf<<&((input)[o0 + w0][o1 + w1])<<" R "<<duration_sec.count()<<" :INPUT\n";\
-						wf<<&((output)[o0][o1])<<" W "<<duration_sec.count()<<" :OUTPUT\n";	}                                                 \
-	}\
- }
+				FOREACH(w1,GETLENGTH(*(weight))) {									\
+					(output)[o0][o1] += (input)[o0 + w0][o1 + w1] * (weight)[w0][w1];	\
+					if(tracei || traceo) { \
+						end = high_resolution_clock::now(); \
+						duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start); \
+						if (traceo && (o0 == xo) && (o1 == xo)) { \
+							wf<<"R "<<duration_sec.count()<<" O\n"; \
+							wf<<"W "<<duration_sec.count()<<" O\n"; \
+						} \
+						if (tracei && (o0+w0 == xi) && (o1+w1 == xi)) { \
+							wf<<"R "<<duration_sec.count()<<" I for (" << o0 << ", " << o1 << ")\n"; \
+						} \
+					} \
+				} \
+}
 
 #define CONVOLUTE_FULL(input,output,weight)												\
 {																						\
@@ -42,14 +47,15 @@ static duration<double, std::milli> duration_sec;
 					(output)[i0 + w0][i1 + w1] += (input)[i0][i1] * (weight)[w0][w1];	\
 }
 
-#define CONVOLUTION_FORWARD(input,output,weight,bias,action,wf,predict)					\
+#define CONVOLUTION_FORWARD(input,output,weight,bias,action,wf,trace,xi,xo)					\
 {																				\
 	for (int x = 0; x < GETLENGTH(weight); ++x)									\
 		for (int y = 0; y < GETLENGTH(*weight); ++y)							\
-			CONVOLUTE_VALID(input[x], output[y], weight[x][y],wf,predict);					\
+			CONVOLUTE_VALID(input[x], output[y], weight[x][y],wf,trace&&(x==0),trace&&(y == 0),xi,xo);					\
 	FOREACH(j, GETLENGTH(output))												\
-		FOREACH(i, GETCOUNT(output[j]))											\
-		((double *)output[j])[i] = action(((double *)output[j])[i] + bias[j]);	\
+		FOREACH(i, GETCOUNT(output[j])) {											\
+			((double *)output[j])[i] = action(((double *)output[j])[i] + bias[j]);	\
+		} \
 }
 
 #define CONVOLUTION_BACKWARD(input,inerror,outerror,weight,wd,bd,actiongrad,wf)\
@@ -64,11 +70,11 @@ static duration<double, std::milli> duration_sec;
 		bd[j] += ((double *)outerror[j])[i];								\
 	for (int x = 0; x < GETLENGTH(weight); ++x)								\
 		for (int y = 0; y < GETLENGTH(*weight); ++y)						\
-			CONVOLUTE_VALID(input[x], wd[x][y], outerror[y],wf,false);				\
+			CONVOLUTE_VALID(input[x], wd[x][y], outerror[y],wf,false,false,0,0);				\
 }
 
 
-#define SUBSAMP_MAX_FORWARD(input,output,wf,predict)														\
+#define SUBSAMP_MAX_FORWARD(input,output,wf,trace,xi,xo)														\
 {																								\
 	const int len0 = GETLENGTH(*(input)) / GETLENGTH(*(output));								\
 	const int len1 = GETLENGTH(**(input)) / GETLENGTH(**(output));								\
@@ -85,13 +91,12 @@ static duration<double, std::milli> duration_sec;
 			x1 += ismax * (l1 - x1);															\
 		}																						\
 		output[i][o0][o1] = input[i][o0*len0 + x0][o1*len1 + x1];		\
-		if(predict && i==0 && o0==00 && o1==0) \
-		{\
+		if((i == 0) && trace && (o0 == xo) && (o1 == xo)) { \
 			end = high_resolution_clock::now();\
-                        duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start); \
-			wf<<&(input[i][o0*len0 + x0][o1*len1 + x1])<<" R "<<duration_sec.count()<<" :INPUT\n"; \
-			wf<<&(output[i][o0][o1])<<" R "<<duration_sec.count()<<" :OUPUT\n"; \
-	        }			\
+      duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start); \
+			wf<<"W "<<duration_sec.count()<<" O\n"; \
+			wf<<"R "<<duration_sec.count()<<" I\n"; \
+		}	\
 	} \
 }
 
@@ -150,18 +155,21 @@ double relugrad(double y)
 
 static void forward(LeNet5 *lenet, Feature *features, double(*action)(double), std::ofstream& wf, bool predict=false)
 {
-	CONVOLUTION_FORWARD(features->input, features->layer1, lenet->weight0_1, lenet->bias0_1, action, wf,predict);
-	if(predict) wf<<"--------LAYER----1----ENDS------------\n";
-	SUBSAMP_MAX_FORWARD(features->layer1, features->layer2,wf,predict);
-	if(predict) wf<<"--------LAYER----2----ENDS------------\n";
-	CONVOLUTION_FORWARD(features->layer2, features->layer3, lenet->weight2_3, lenet->bias2_3, action,wf,predict);
-	if(predict) wf<<"--------LAYER----3----ENDS------------\n";
-	SUBSAMP_MAX_FORWARD(features->layer3, features->layer4,wf,predict);
-	if(predict) wf<<"--------LAYER----4----ENDS------------\n";
-	CONVOLUTION_FORWARD(features->layer4, features->layer5, lenet->weight4_5, lenet->bias4_5, action,wf,predict);
-	if(predict) wf<<"--------LAYER----5----ENDS------------\n";
+	if(predict) wf<<"Layer 1 (in: " << LENGTH_FEATURE0/2 << ", out: " << LENGTH_FEATURE1/2 << ")\n";
+	CONVOLUTION_FORWARD(features->input, features->layer1, lenet->weight0_1, lenet->bias0_1, action, wf,predict,
+											LENGTH_FEATURE0/2, LENGTH_FEATURE1/2);
+	if(predict) wf<<"Layer 2 (in: " << LENGTH_FEATURE1/2 << ", out: " << LENGTH_FEATURE2/2 << ")\n";
+	SUBSAMP_MAX_FORWARD(features->layer1, features->layer2,wf,predict, LENGTH_FEATURE1/2, LENGTH_FEATURE2/2);
+	if(predict) wf<<"Layer 3 (in: " << LENGTH_FEATURE2/2 << ", out: " << LENGTH_FEATURE3/2 << ")\n";
+	CONVOLUTION_FORWARD(features->layer2, features->layer3, lenet->weight2_3, lenet->bias2_3, action,wf,predict,
+											LENGTH_FEATURE2/2, LENGTH_FEATURE3/2);
+	if(predict) wf<<"Layer 4 (in: " << LENGTH_FEATURE3/2 << ", out: " << LENGTH_FEATURE4/2 << ")\n";
+	SUBSAMP_MAX_FORWARD(features->layer3, features->layer4,wf,predict, LENGTH_FEATURE3/2, LENGTH_FEATURE4/2);
+	if(predict) wf<<"Layer 5 (in: " << LENGTH_FEATURE4/2 << ", out: " << LENGTH_FEATURE5/2 << ")\n";
+	CONVOLUTION_FORWARD(features->layer4, features->layer5, lenet->weight4_5, lenet->bias4_5, action,wf,predict,
+											LENGTH_FEATURE4/2, LENGTH_FEATURE5/2);
+	if(predict) wf<<"Layer 6\n";
 	DOT_PRODUCT_FORWARD(features->layer5, features->output, lenet->weight5_6, lenet->bias5_6, action,wf,predict);
-	if(predict) wf<<"--------LAYER----6----ENDS------------\n";
 }
 
 static void backward(LeNet5 *lenet, LeNet5 *deltas, Feature *errors, Feature *features, double(*actiongrad)(double),std::ofstream& wf)

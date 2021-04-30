@@ -55,7 +55,7 @@ typedef struct LeNet5
 	double bias4_5[LAYER5];
 	double bias5_6[OUTPUT];
 
-}LeNet5;
+} LeNet5;
 
 typedef struct Feature
 {
