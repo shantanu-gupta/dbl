@@ -20,6 +20,7 @@ def read_trace():
         rw, ts, io = line.split()
         addr = addr_in if io == 'I' else addr_out
         rw = 'READ' if rw == 'R' else 'WRITE'
+        ts = str(int(float(ts) * 1e6))
         trace.append((addr, rw, ts))
     return trace
 
