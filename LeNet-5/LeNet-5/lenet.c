@@ -168,7 +168,7 @@ static void forward(LeNet5 *lenet, Feature *features, double(*action)(double), s
 	if(predict) wf<<"Layer 5 (in: " << LENGTH_FEATURE4/2 << ", out: " << LENGTH_FEATURE5/2 << ")\n";
 	CONVOLUTION_FORWARD(features->layer4, features->layer5, lenet->weight4_5, lenet->bias4_5, action,wf,predict,
 											LENGTH_FEATURE4/2, LENGTH_FEATURE5/2);
-	if(predict) wf<<"Layer 6\n";
+	// if(predict) wf<<"Layer 6\n";
 	DOT_PRODUCT_FORWARD(features->layer5, features->output, lenet->weight5_6, lenet->bias5_6, action,wf,predict);
 }
 
