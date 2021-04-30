@@ -32,7 +32,7 @@ static duration<double, std::milli> duration_sec;
 							wf<<"W "<<duration_sec.count()<<" O\n"; \
 						} \
 						if (tracei && (o0+w0 == xi) && (o1+w1 == xi)) { \
-							wf<<"R "<<duration_sec.count()<<" I for (" << o0 << ", " << o1 << ")\n"; \
+							wf<<"R "<<duration_sec.count()<<" I\n"; \
 						} \
 					} \
 				} \
